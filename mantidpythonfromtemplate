@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+import os
+import sys
+__version__="0.0.1"
+
+def readTemplate(filename):
+    handle=open(filename, 'r')
+    template=handle.read()
+    handle.close()
+    return template
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Fill in a template using pythons engine')
+    parser.add_argument('infile', metavar="INFILE",
+                        help="Template file to read in")
+    parser.add_argument('-o', '--outfile',
+                        help="File to write out. Defaults to abbreviated template name in the current directory")
+    parser.add_argument('argvec', nargs='*', metavar="ARG",
+                        help="Key/value pairs to fill into the template")
+    args=parser.parse_args()
+
+    if not os.path.exists(args.infile):
+        parser.error("Input file does not exist")
+
+    # output file
+    if args.outfile is None:
+        args.outfile = os.path.split(args.infile)[-1].replace('.template','')
+
+    print("Reading '%s'" %args.infile)
+
+    # read in the template
+    scriptText=readTemplate(args.infile)
+
+    argList=sys.argv[2:]
+    argDict={}
+    for i in range(0,len(argList),2):
+        argDict[argList[i]]=argList[i+1]
+
+    print("Generating '%s'" %args.outfile)
+    try:
+        scriptText=scriptText % argDict
+    except KeyError as e:
+        print("Failed to supply value for key %s" % str(e))
+
+    handle=open(args.outfile,'w')
+    handle.write(scriptText)
+    handle.close()
