@@ -1,32 +1,99 @@
 #!/usr/bin/env python3
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
-import configparser
-
+import os
 __version__="0.0.1"
+
+def getAlgName(information):
+    return information.split('=')[0].split('\\')[1]
+
+def getAlgNames(lines):
+    alg_names=set()
+    for line in lines:
+        if not line.startswith("Algorithms\\"):
+            continue
+        name = getAlgName(line)
+        if name == "LastDirectory":
+            continue
+        alg_names.add(name)
+    return list(alg_names)
+
+def algValueToStr(value):
+    # if it can be turned into a float, return without quotes
+    try:
+        float(value)
+        return value
+    except ValueError:
+        pass
+
+    # don't quote things that are already quoted
+    if value.startswith('"') or value.startswith("'"):
+        return value
+
+    # quote everything else
+    return '"%s"' % value
+
+class Algorithm:
+    def __init__(self, name, lines):
+        self.name=name
+        self.parameters={}
+        prefix="Algorithms\\%s\\" % name
+        for line in lines:
+            if line.startswith(prefix):
+                prop_name=line.split('=')[0]
+                value=line.replace(prop_name+'=', '')
+                prop_name=prop_name.replace(prefix,'')
+                self.parameters[prop_name]=value
+
+    def __str__(self):
+        result=[]
+        for key in self.parameters.keys():
+            result.append("%s=%s" % (key, algValueToStr(self.parameters[key])))
+        return "%s(%s)" % (self.name, ','.join(result))
+
+
+class Config:
+    def __init__(self, filename):
+        handle = open(filename, 'r')
+        sections = {}
+
+        for line in handle.readlines():
+            line = line.strip()
+            if len(line) <= 0:
+                continue
+            if line[0] == '[' and line[-1] == ']':
+                heading = line[1:-1]
+                sections[heading]=[]
+            else:
+                sections[heading].append(line)
+        handle.close()
+        self.__init_Mantid(sections['Mantid'])
+
+    def __init_Mantid(self, lines):
+        alg_names=getAlgNames(lines)
+        for name in alg_names:
+            alg=Algorithm(name, lines)
+            print(alg)
+
+def determineConfigFile(filename, userdir):
+    if filename is not None:
+        return os.path.expanduser(filename)
+
+    filename=os.path.join(userdir, '.config/Mantid/MantidPlot.conf')
+    return os.path.expanduser(filename)
+
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Explore ~/.config settings")
+    parser = argparse.ArgumentParser(description='Explore ~/.config/Mantid/MantidPlot.conf settings')
+    parser.add_argument('-f','--filename', metavar='CONFIG_FILE',
+                        help='configuration file to get information from')
+    parser.add_argument('-u','--userdir', metavar='USER_HOME',
+                        help='specify a user home directory',
+                        default="~/")
     args=parser.parse_args()
 
-    filename="/home/pf9/.config/Mantid/MantidPlot.conf"
+    filename = determineConfigFile(args.filename, args.userdir)
 
-    print(filename)
-    config = configparser.RawConfigParser()
-    config.read(filename)
-    print(config.sections())
-
-    print("******")
-    items=config.items('Mantid')
-    for item in items:
-        if "lgorithms" in item[0]:
-            print(item[0])
-#        if item[0].startswith('Algorithms\SNSPowderReduction'):
-#           print(item)
-    #print(config.items('Mantid'))
-
-    print("******")
-    key='Algorithms\SNSPowderReduction\Binning'
-    print(key)
-    print(config.get('Mantid', key))
+    print("Reading information from '%s'" % filename)
+    config = Config(filename)
