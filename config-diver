@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+import configparser
+
+__version__="0.0.1"
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Explore ~/.config settings")
+    args=parser.parse_args()
+
+    filename="/home/pf9/.config/Mantid/MantidPlot.conf"
+
+    print(filename)
+    config = configparser.RawConfigParser()
+    config.read(filename)
+    print(config.sections())
+
+    print("******")
+    items=config.items('Mantid')
+    for item in items:
+        if "lgorithms" in item[0]:
+            print(item[0])
+#        if item[0].startswith('Algorithms\SNSPowderReduction'):
+#           print(item)
+    #print(config.items('Mantid'))
+
+    print("******")
+    key='Algorithms\SNSPowderReduction\Binning'
+    print(key)
+    print(config.get('Mantid', key))
