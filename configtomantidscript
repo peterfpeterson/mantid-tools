@@ -70,9 +70,20 @@ class Config:
         self.__init_Mantid(sections['Mantid'])
 
     def __init_Mantid(self, lines):
+        self.algorithms=[]
         alg_names=getAlgNames(lines)
         for name in alg_names:
             alg=Algorithm(name, lines)
+            self.algorithms.append(alg)
+
+    def printAlg(self,name):
+        for alg in self.algorithms:
+            if name in alg.name:
+                print(alg)
+                break
+
+    def printAllAlg(self):
+        for alg in self.algorithms:
             print(alg)
 
 def determineConfigFile(filename, userdir):
@@ -91,9 +102,15 @@ if __name__ == "__main__":
     parser.add_argument('-u','--userdir', metavar='USER_HOME',
                         help='specify a user home directory',
                         default="~/")
+    parser.add_argument('-a','--alg', metavar='ALG_NAME',
+                       help='print information for a specific algorithm')
     args=parser.parse_args()
 
     filename = determineConfigFile(args.filename, args.userdir)
 
     print("Reading information from '%s'" % filename)
     config = Config(filename)
+    if args.alg is not None:
+        config.printAlg(args.alg)
+    else:
+        config.printAllAlg()
