@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
     filename = determineConfigFile(args.filename, args.userdir)
 
-    print("Reading information from '%s'" % filename)
+    print("# Reading information from '%s'" % filename)
     config = Config(filename)
     if args.alg is not None:
         config.printAlg(args.alg)
