@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+import h5py
+import os
+import sys
+import datetime
+__version__="0.0.1"
+
+shareddirlist = []
+reduceloglist = []
+
+class GenericFile:
+    def __init__(self, path):
+        self.filename = path
+        self.timeCreation = None
+        self.filesize = 0.
+
+        if self.filename is None:
+            return
+        if not os.path.exists(self.filename):
+            return
+
+        stat = os.stat(self.filename)
+        self.timeCreation = datetime.datetime.fromtimestamp(stat.st_ctime)
+        self.filesize = stat.st_size
+
+    def __bool__(self):
+        if self.filename is None:
+            return False
+        return os.path.exists(self.filename)
+
+    def iso8601(self):
+        if self.timeCreation is None:
+            return ''
+        else:
+            return self.timeCreation.strftime("%Y-%m-%dT%H:%M")
+    def filesizehuman(self):
+        if self.filesize < 1024:
+            return "%dB" % (self.filesize)
+
+        filesize_converted = float(self.filesize)/1024. # to kiB
+        if filesize_converted < 1024.:
+            return "%.1fkiB" % (filesize_converted)
+
+        filesize_converted = float(filesize_converted)/1024. # to MiB
+        if filesize_converted < 1024.:
+            return "%.1fMiB" % (filesize_converted)
+
+        filesize_converted = float(filesize_converted)/1024. # to GiB
+        return "%.1fGiB" % (filesize_converted)
+
+class ReductionLogFile(GenericFile):
+    def __init__(self, direc, logname):
+        super().__init__(os.path.join(direc, logname))
+
+        self.mantidVersion = "UNKNOWN"
+        self.__findMantidVersion()
+
+        self.longestDuration = 0. # in second
+        self.longestAlgorithm = ""
+        self.__findLongestDuration()
+        (hours, minutes, seconds) = (0., 0.,self.longestDuration)
+        if seconds > 60.:
+            minutes = int(seconds/60.)
+            seconds = seconds % 60
+            if minutes > 60:
+                hours = int(minutes/60)
+                minutes = minutes % 60
+        self.longestDuration = "%dh%02dm%02ds" % (hours, minutes, int(seconds))
+
+    def __findLongestDuration(self):
+        if not bool(self): # something wrong with the log
+            return
+
+        with open(self.filename, 'r') as handle:
+            for line in handle:
+                if "Duration" in line:
+                    line = line.strip()
+                    if "-1 seconds" in line:
+                        continue
+                    line = line.split()
+                    algorithm = line[1]
+                    duration = line[4:]
+                    if len(duration) == 2: # only seconds
+                        duration = float(duration[0])
+                    elif len(duration) == 4: # minutes and seconds
+                        duration = float(duration[0]) * 60. \
+                                   + float(duration[2])
+                    if duration > self.longestDuration:
+                        self.longestDuration = duration
+                        self.longestAlgorithm = algorithm
+    def __findMantidVersion(self):
+        if not bool(self): # something wrong with the log
+            return
+
+        with open(self.filename, 'r') as handle:
+            for line in handle:
+                if "This is Mantid version" in line:
+                    line = line.strip()
+                    self.mantidVersion = line.split()[5]
+
+
+class ARstatus:
+    def __init__(self, direc, eventfile):
+        self.eventfile = eventfile
+        self.reduxfiles = [os.path.join(direc, name)
+                           for name in shareddirlist
+                           if eventfile.isThisRun(name)]
+
+        logdir = os.path.join(direc, 'reduction_log')
+        self.logfile = ReductionLogFile(logdir, eventfile.shortname + ".log")
+        self.errfile = ReductionLogFile(logdir, eventfile.shortname + ".err")
+
+    def hasLog(self):
+        return (bool(self.logfile) or bool(self.errfile))
+
+    def header():
+        return ("runID", "runStart", "runStop", "runCTime", "eventSize",
+                "numReduced", "version",
+                "logCTime", "longAlgo", "algoDuration")
+
+    def report(self):
+        return (str(self.eventfile),
+                self.eventfile.timeStart, self.eventfile.timeStop,
+                self.eventfile.iso8601(),
+                self.eventfile.filesizehuman(),
+                str(len(self.reduxfiles)), self.logfile.mantidVersion,
+                self.logfile.iso8601(),
+                self.logfile.longestAlgorithm, self.logfile.longestDuration)
+
+
+class EventFile(GenericFile):
+    def __init__(self, direc, filename):
+        super().__init__(os.path.join(direc, filename))
+        self.shortname = filename
+        self.prefix = filename.replace('.nxs.h5','').replace('_event.nxs','')
+
+        with h5py.File(self.filename, 'r') as handle:
+            entry = handle.get("entry")
+            self.timeStart = entry.get("start_time").value[0].decode('utf-8')[:16]
+            self.timeStop = entry.get("end_time").value[0].decode('utf-8')[:16]
+
+    def __str__(self):
+        return self.prefix
+
+    def __repr__(self):
+        return self.prefix
+
+    def isThisRun(self, filename):
+        return filename.startswith(self.prefix)
+
+def getRuns(propdir):
+    # find the data directory
+    datadirs = [os.path.join(propdir, subdir) for subdir in  ['data', 'nexus']]
+    datadirs = [direc for direc in datadirs if os.path.isdir(direc)]
+    if len(datadirs) != 1:
+        raise RuntimeError("Expected only one data directory, found " \
+                           + ','.join(datadirs))
+
+    # get a list of event files in that directory
+    files = os.listdir(datadirs[0])
+    files = [name for name in files if not name.endswith("_histo.nxs")]
+    files = [EventFile(datadirs[0], name) for name in files]
+
+    return files
+
+def getOutFilename(propdir):
+    (parent, prop) = os.path.split(propdir)
+    (parten, inst) = os.path.split(parent)
+    return "%s-%s.csv" % (inst, prop)
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Report information on ' \
+                                     + 'auto-reduction in a proposal')
+    parser.add_argument('propdir', metavar="IPTSDIR",
+                        help="proposal directory to report on")
+    args=parser.parse_args()
+    args.propdir = os.path.abspath(args.propdir)
+
+    if not os.path.exists(args.propdir):
+        parser.error("Proposal directory does not exist")
+    if not os.path.isdir(args.propdir):
+        parser.error("Specified a file rather than a directory")
+
+    print("Finding event nexus files in '%s'" % args.propdir)
+    runs = getRuns(args.propdir)
+    reducedir = os.path.join(args.propdir, 'shared', 'autoreduce')
+    shareddirlist = os.listdir(reducedir)
+
+    outfile = getOutFilename(args.propdir)
+    print("Writing results to '%s'" % outfile)
+    total_runs = len(runs)
+    total_reduced = 0
+    with open(outfile, 'w') as handle:
+        handle.write(','.join(ARstatus.header()) + "\n")
+        for eventfile in runs:
+            ar = ARstatus(reducedir, eventfile)
+            if len(ar.reduxfiles) > 0:
+                total_reduced += 1
+            handle.write(','.join(ar.report()) + "\n")
+    print("%d of %d files reduced" % (total_reduced, total_runs))
