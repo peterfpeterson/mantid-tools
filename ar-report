@@ -53,25 +53,65 @@ class GenericFile:
 class ReductionLogFile(GenericFile):
     def __init__(self, direc, logname):
         super().__init__(os.path.join(direc, logname))
-
         self.mantidVersion = "UNKNOWN"
+        self.longestDuration = __class__.durationToHuman(0.)
+        self.longestAlgorithm = ""
+        self.loadDurationTotal = __class__.durationToHuman(0.)
+
+        if not bool(self): # something wrong with the log
+
+            return
+
         self.__findMantidVersion()
 
-        self.longestDuration = 0. # in second
-        self.longestAlgorithm = ""
         self.__findLongestDuration()
-        (hours, minutes, seconds) = (0., 0.,self.longestDuration)
+        self.longestDuration = __class__.durationToHuman(self.longestDuration)
+
+        self.__findLoadTotal()
+        self.loadDurationTotal =  __class__.durationToHuman(self.loadDurationTotal)
+
+    def durationToHuman(duration):
+        (hours, minutes, seconds) = (0., 0.,duration)
         if seconds > 60.:
             minutes = int(seconds/60.)
             seconds = seconds % 60
             if minutes > 60:
                 hours = int(minutes/60)
                 minutes = minutes % 60
-        self.longestDuration = "%dh%02dm%02ds" % (hours, minutes, int(seconds))
+        return "%dh%02dm%02ds" % (hours, minutes, int(seconds))
+
+    def __findLoadTotal(self):
+        self.loadDurationTotal = 0.
+
+        with open(self.filename, 'r') as handle:
+            for line in handle:
+                if not "Duration" in line:
+                    continue
+                if "-1 seconds" in line:
+                    continue
+                if not "Load" in line:
+                    continue
+                line = line.strip()
+                (_, duration) \
+                    = __class__.logDurationToNameAndSeconds(line)
+                self.loadDurationTotal += duration
+
+    def logDurationToNameAndSeconds(line):
+        line = line.split()
+        algorithm = line[1]
+        duration = line[4:]
+
+        if len(duration) == 2: # only seconds
+            duration = float(duration[0])
+        elif len(duration) == 4: # minutes and seconds
+            duration = float(duration[0]) * 60. \
+                       + float(duration[2])
+        else:
+            raise RuntimeError("Don't know how to parse duration")
+        return (algorithm, duration)
 
     def __findLongestDuration(self):
-        if not bool(self): # something wrong with the log
-            return
+        self.longestDuration = 0. # in seconds
 
         with open(self.filename, 'r') as handle:
             for line in handle:
@@ -79,21 +119,14 @@ class ReductionLogFile(GenericFile):
                     line = line.strip()
                     if "-1 seconds" in line:
                         continue
-                    line = line.split()
-                    algorithm = line[1]
-                    duration = line[4:]
-                    if len(duration) == 2: # only seconds
-                        duration = float(duration[0])
-                    elif len(duration) == 4: # minutes and seconds
-                        duration = float(duration[0]) * 60. \
-                                   + float(duration[2])
+                    (algorithm, duration) \
+                        = __class__.logDurationToNameAndSeconds(line)
+
                     if duration > self.longestDuration:
                         self.longestDuration = duration
                         self.longestAlgorithm = algorithm
-    def __findMantidVersion(self):
-        if not bool(self): # something wrong with the log
-            return
 
+    def __findMantidVersion(self):
         with open(self.filename, 'r') as handle:
             for line in handle:
                 if "This is Mantid version" in line:
@@ -118,7 +151,7 @@ class ARstatus:
     def header():
         return ("runID", "runStart", "runStop", "runCTime", "eventSize",
                 "numReduced", "version",
-                "logCTime", "longAlgo", "algoDuration")
+                "logCTime", "longAlgo", "algoDuration", "loadDurationTotal")
 
     def report(self):
         return (str(self.eventfile),
@@ -127,7 +160,8 @@ class ARstatus:
                 self.eventfile.filesizehuman(),
                 str(len(self.reduxfiles)), self.logfile.mantidVersion,
                 self.logfile.iso8601(),
-                self.logfile.longestAlgorithm, self.logfile.longestDuration)
+                self.logfile.longestAlgorithm, self.logfile.longestDuration,
+                self.logfile.loadDurationTotal)
 
 
 class EventFile(GenericFile):
