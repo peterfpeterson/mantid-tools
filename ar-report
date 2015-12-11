@@ -54,9 +54,11 @@ class ReductionLogFile(GenericFile):
     def __init__(self, direc, logname):
         super().__init__(os.path.join(direc, logname))
         self.mantidVersion = "UNKNOWN"
-        self.longestDuration = __class__.durationToHuman(0.)
+        self.longestDuration = 0.
         self.longestAlgorithm = ""
-        self.loadDurationTotal = __class__.durationToHuman(0.)
+        self.loadDurationTotal = 0.
+        self.started = ''
+        self.host = ''
 
         if not bool(self): # something wrong with the log
 
@@ -65,10 +67,11 @@ class ReductionLogFile(GenericFile):
         self.__findMantidVersion()
 
         self.__findLongestDuration()
-        self.longestDuration = __class__.durationToHuman(self.longestDuration)
+        self.longestDuration = "%.1f" % self.longestDuration
+        #self.longestDuration = __class__.durationToHuman(self.longestDuration)
 
         self.__findLoadTotal()
-        self.loadDurationTotal =  __class__.durationToHuman(self.loadDurationTotal)
+        self.loadDurationTotal =  "%.1f" % self.loadDurationTotal
 
     def durationToHuman(duration):
         (hours, minutes, seconds) = (0., 0.,duration)
@@ -129,10 +132,11 @@ class ReductionLogFile(GenericFile):
     def __findMantidVersion(self):
         with open(self.filename, 'r') as handle:
             for line in handle:
+                line = line.strip()
                 if "This is Mantid version" in line:
-                    line = line.strip()
                     self.mantidVersion = line.split()[5]
-
+                if "running" in line and "starting" in line:
+                    (self.host, _, self.started) = line.split()[2:]
 
 class ARstatus:
     def __init__(self, direc, eventfile):
@@ -150,7 +154,7 @@ class ARstatus:
 
     def header():
         return ("runID", "runStart", "runStop", "runCTime", "eventSize",
-                "numReduced", "version",
+                "host", "numReduced", "version", "reduxStart",
                 "logCTime", "longAlgo", "algoDuration", "loadDurationTotal")
 
     def report(self):
@@ -158,7 +162,9 @@ class ARstatus:
                 self.eventfile.timeStart, self.eventfile.timeStop,
                 self.eventfile.iso8601(),
                 self.eventfile.filesizehuman(),
+                self.logfile.host,
                 str(len(self.reduxfiles)), self.logfile.mantidVersion,
+                self.logfile.started,
                 self.logfile.iso8601(),
                 self.logfile.longestAlgorithm, self.logfile.longestDuration,
                 self.logfile.loadDurationTotal)
@@ -231,7 +237,8 @@ if __name__ == "__main__":
         handle.write(','.join(ARstatus.header()) + "\n")
         for eventfile in runs:
             ar = ARstatus(reducedir, eventfile)
+            report = [str(item) for item in ar.report()]
             if len(ar.reduxfiles) > 0:
                 total_reduced += 1
-            handle.write(','.join(ar.report()) + "\n")
+            handle.write(','.join(report) + "\n")
     print("%d of %d files reduced" % (total_reduced, total_runs))
