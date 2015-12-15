@@ -1,16 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 import h5py
 import os
-import sys
 import datetime
-__version__="0.0.1"
+
+__version__ = "0.0.1"
 
 shareddirlist = []
 reduceloglist = []
 
-class GenericFile:
+
+class GenericFile(object):
     def __init__(self, path):
         self.filename = path
         self.timeCreation = None
@@ -35,24 +36,26 @@ class GenericFile:
             return ''
         else:
             return self.timeCreation.strftime("%Y-%m-%dT%H:%M")
+
     def filesizehuman(self):
         if self.filesize < 1024:
             return "%dB" % (self.filesize)
 
-        filesize_converted = float(self.filesize)/1024. # to kiB
+        filesize_converted = float(self.filesize) / 1024.  # to kiB
         if filesize_converted < 1024.:
             return "%.1fkiB" % (filesize_converted)
 
-        filesize_converted = float(filesize_converted)/1024. # to MiB
+        filesize_converted = float(filesize_converted) / 1024.  # to MiB
         if filesize_converted < 1024.:
             return "%.1fMiB" % (filesize_converted)
 
-        filesize_converted = float(filesize_converted)/1024. # to GiB
+        filesize_converted = float(filesize_converted) / 1024.  # to GiB
         return "%.1fGiB" % (filesize_converted)
+
 
 class ReductionLogFile(GenericFile):
     def __init__(self, direc, logname):
-        super().__init__(os.path.join(direc, logname))
+        super(ReductionLogFile, self).__init__(os.path.join(direc, logname))
         self.mantidVersion = "UNKNOWN"
         self.longestDuration = 0.
         self.longestAlgorithm = ""
@@ -60,7 +63,7 @@ class ReductionLogFile(GenericFile):
         self.started = ''
         self.host = ''
 
-        if not bool(self): # something wrong with the log
+        if not bool(self):  # something wrong with the log
 
             return
 
@@ -68,18 +71,18 @@ class ReductionLogFile(GenericFile):
 
         self.__findLongestDuration()
         self.longestDuration = "%.1f" % self.longestDuration
-        #self.longestDuration = __class__.durationToHuman(self.longestDuration)
+        # self.longestDuration = __class__.durationToHuman(self.longestDuration)
 
         self.__findLoadTotal()
-        self.loadDurationTotal =  "%.1f" % self.loadDurationTotal
+        self.loadDurationTotal = "%.1f" % self.loadDurationTotal
 
     def durationToHuman(duration):
-        (hours, minutes, seconds) = (0., 0.,duration)
+        (hours, minutes, seconds) = (0., 0., duration)
         if seconds > 60.:
-            minutes = int(seconds/60.)
+            minutes = int(seconds / 60.)
             seconds = seconds % 60
             if minutes > 60:
-                hours = int(minutes/60)
+                hours = int(minutes / 60)
                 minutes = minutes % 60
         return "%dh%02dm%02ds" % (hours, minutes, int(seconds))
 
@@ -104,9 +107,9 @@ class ReductionLogFile(GenericFile):
         algorithm = line[1]
         duration = line[4:]
 
-        if len(duration) == 2: # only seconds
+        if len(duration) == 2:  # only seconds
             duration = float(duration[0])
-        elif len(duration) == 4: # minutes and seconds
+        elif len(duration) == 4:  # minutes and seconds
             duration = float(duration[0]) * 60. \
                        + float(duration[2])
         else:
@@ -114,7 +117,7 @@ class ReductionLogFile(GenericFile):
         return (algorithm, duration)
 
     def __findLongestDuration(self):
-        self.longestDuration = 0. # in seconds
+        self.longestDuration = 0.  # in seconds
 
         with open(self.filename, 'r') as handle:
             for line in handle:
@@ -137,6 +140,7 @@ class ReductionLogFile(GenericFile):
                     self.mantidVersion = line.split()[5]
                 if "running" in line and "starting" in line:
                     (self.host, _, self.started) = line.split()[2:]
+
 
 class ARstatus:
     def __init__(self, direc, eventfile):
@@ -172,9 +176,9 @@ class ARstatus:
 
 class EventFile(GenericFile):
     def __init__(self, direc, filename):
-        super().__init__(os.path.join(direc, filename))
+        super(EventFile, self).__init__(os.path.join(direc, filename))
         self.shortname = filename
-        self.prefix = filename.replace('.nxs.h5','').replace('_event.nxs','')
+        self.prefix = filename.replace('.nxs.h5', '').replace('_event.nxs', '')
 
         with h5py.File(self.filename, 'r') as handle:
             entry = handle.get("entry")
@@ -190,9 +194,10 @@ class EventFile(GenericFile):
     def isThisRun(self, filename):
         return filename.startswith(self.prefix)
 
+
 def getRuns(propdir):
     # find the data directory
-    datadirs = [os.path.join(propdir, subdir) for subdir in  ['data', 'nexus']]
+    datadirs = [os.path.join(propdir, subdir) for subdir in ['data', 'nexus']]
     datadirs = [direc for direc in datadirs if os.path.isdir(direc)]
     if len(datadirs) != 1:
         raise RuntimeError("Expected only one data directory, found " \
@@ -205,18 +210,32 @@ def getRuns(propdir):
 
     return files
 
+
 def getOutFilename(propdir):
     (parent, prop) = os.path.split(propdir)
     (parten, inst) = os.path.split(parent)
     return "%s-%s.csv" % (inst, prop)
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description='Report information on ' \
-                                     + 'auto-reduction in a proposal')
-    parser.add_argument('propdir', metavar="IPTSDIR",
+                                                 + 'auto-reduction in a proposal')
+    parser.add_argument('-p', '--propdir', metavar="IPTSDIR",
                         help="proposal directory to report on")
-    args=parser.parse_args()
+    parser.add_argument('-r', '--runfile', metavar="NEXUSFILE",
+                        help="path to a nexus file, changes to append")
+    parser.add_argument('-o', '--outputdir',
+                        help="directory to write csv to, " \
+                             + "defaults to instrument shared")
+    args = parser.parse_args()
+
+    if args.propdir is None:
+        pass
+    else:
+        pass
+
     args.propdir = os.path.abspath(args.propdir)
 
     if not os.path.exists(args.propdir):
