@@ -91,11 +91,11 @@ class ReductionLogFile(GenericFile):
 
         with open(self.filename, 'r') as handle:
             for line in handle:
-                if not "Duration" in line:
+                if "Duration" not in line:
                     continue
                 if "-1 seconds" in line:
                     continue
-                if not "Load" in line:
+                if "Load" not in line:
                     continue
                 line = line.strip()
                 (_, duration) \
