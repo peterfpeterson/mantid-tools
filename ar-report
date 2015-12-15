@@ -99,9 +99,10 @@ class ReductionLogFile(GenericFile):
                     continue
                 line = line.strip()
                 (_, duration) \
-                    = __class__.logDurationToNameAndSeconds(line)
+                    = self.logDurationToNameAndSeconds(line)
                 self.loadDurationTotal += duration
 
+    @staticmethod
     def logDurationToNameAndSeconds(line):
         line = line.split()
         algorithm = line[1]
@@ -126,7 +127,7 @@ class ReductionLogFile(GenericFile):
                     if "-1 seconds" in line:
                         continue
                     (algorithm, duration) \
-                        = __class__.logDurationToNameAndSeconds(line)
+                        = self.logDurationToNameAndSeconds(line)
 
                     if duration > self.longestDuration:
                         self.longestDuration = duration
@@ -156,6 +157,7 @@ class ARstatus:
     def hasLog(self):
         return (bool(self.logfile) or bool(self.errfile))
 
+    @staticmethod
     def header():
         return ("runID", "runStart", "runStop", "runCTime", "eventSize",
                 "host", "numReduced", "version", "reduxStart",
