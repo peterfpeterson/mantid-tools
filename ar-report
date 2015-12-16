@@ -15,7 +15,7 @@ class GenericFile(object):
     def __init__(self, path):
         self.filename = path
         self.timeCreation = None
-        self.filesize = 0.
+        self.filesize = 0
 
         if self.filename is None:
             return
@@ -26,16 +26,26 @@ class GenericFile(object):
         self.timeCreation = datetime.datetime.fromtimestamp(stat.st_ctime)
         self.filesize = stat.st_size
 
+    # called for bool(obj) in python 3.x
     def __bool__(self):
         if self.filename is None:
             return False
-        return os.path.exists(self.filename)
+        if not os.path.exists(self.filename):
+            return False
+        return self.filesize > 0
+
+    # called for bool(obj) in python 2.x
+    def __nonzero__(self):
+        return self.__bool__()
 
     def iso8601(self):
         if self.timeCreation is None:
             return ''
         else:
             return self.timeCreation.strftime("%Y-%m-%dT%H:%M")
+
+    def filesizeMiB(self):
+        return "%.f" % (float(self.filesize)/1024./1024.)
 
     def filesizehuman(self):
         if self.filesize < 1024:
@@ -54,17 +64,18 @@ class GenericFile(object):
 
 
 class ReductionLogFile(GenericFile):
-    def __init__(self, direc, logname):
+    def __init__(self, direc, logname, eventfilename):
         super(ReductionLogFile, self).__init__(os.path.join(direc, logname))
         self.mantidVersion = "UNKNOWN"
         self.longestDuration = 0.
         self.longestAlgorithm = ""
         self.loadDurationTotal = 0.
+        self.loadEventNexusDuration = 0.
         self.started = ''
         self.host = ''
+        self.loadEventNexusDuration = 0.
 
         if not bool(self):  # something wrong with the log
-
             return
 
         self.__findMantidVersion()
@@ -72,6 +83,9 @@ class ReductionLogFile(GenericFile):
         self.__findLongestDuration()
         self.longestDuration = "%.1f" % self.longestDuration
         # self.longestDuration = __class__.durationToHuman(self.longestDuration)
+
+        self.__findLoadNexusTotal(eventfilename)
+        self.loadEventNexusDuration = "%.1f" % self.loadEventNexusDuration
 
         self.__findLoadTotal()
         self.loadDurationTotal = "%.1f" % self.loadDurationTotal
@@ -85,6 +99,19 @@ class ReductionLogFile(GenericFile):
                 hours = int(minutes / 60)
                 minutes = minutes % 60
         return "%dh%02dm%02ds" % (hours, minutes, int(seconds))
+
+    def __findLoadNexusTotal(self, eventfilename):
+        with open(self.filename, 'r') as handle:
+            lookForDuration = False
+            for line in handle:
+                if "Load" in line and eventfilename in line:
+                    lookForDuration = True
+                elif lookForDuration and "Duration" in line:
+                    (_, duration) \
+                        = self.logDurationToNameAndSeconds(line)
+                    if duration > 0.:
+                        self.loadEventNexusDuration += duration
+                    lookForDuration = False
 
     def __findLoadTotal(self):
         self.loadDurationTotal = 0.
@@ -145,35 +172,36 @@ class ReductionLogFile(GenericFile):
 
 class ARstatus:
     def __init__(self, direc, eventfile):
+
         self.eventfile = eventfile
         self.reduxfiles = [os.path.join(direc, name)
                            for name in shareddirlist
                            if eventfile.isThisRun(name)]
 
         logdir = os.path.join(direc, 'reduction_log')
-        self.logfile = ReductionLogFile(logdir, eventfile.shortname + ".log")
-        self.errfile = ReductionLogFile(logdir, eventfile.shortname + ".err")
+        self.logfile = ReductionLogFile(logdir, eventfile.shortname + ".log", eventfile.shortname)
+        self.errfile = ReductionLogFile(logdir, eventfile.shortname + ".err", eventfile.shortname)
 
     def hasLog(self):
         return (bool(self.logfile) or bool(self.errfile))
 
     @staticmethod
     def header():
-        return ("runID", "runStart", "runStop", "runCTime", "eventSize",
+        return ("runID", "runStart", "runStop", "runCTime", "eventSizeMiB",
                 "host", "numReduced", "version", "reduxStart",
-                "logCTime", "longAlgo", "algoDuration", "loadDurationTotal")
+                "logCTime", "longAlgo", "algoSec", "loadSecTotal", "loadNexusSecTotal")
 
     def report(self):
         return (str(self.eventfile),
                 self.eventfile.timeStart, self.eventfile.timeStop,
                 self.eventfile.iso8601(),
-                self.eventfile.filesizehuman(),
+                self.eventfile.filesizeMiB(),
                 self.logfile.host,
                 str(len(self.reduxfiles)), self.logfile.mantidVersion,
                 self.logfile.started,
                 self.logfile.iso8601(),
                 self.logfile.longestAlgorithm, self.logfile.longestDuration,
-                self.logfile.loadDurationTotal)
+                self.logfile.loadDurationTotal, self.logfile.loadEventNexusDuration)
 
 
 class EventFile(GenericFile):
@@ -196,6 +224,23 @@ class EventFile(GenericFile):
     def isThisRun(self, filename):
         return filename.startswith(self.prefix)
 
+def getPropDir(descr):
+    # if this points to a runfile, guess the proposal directory
+    if os.path.isfile(descr):
+        parts = [str(item) for item in descr.split('/')[:4]]
+        fullpath = os.path.join('/', *parts)
+    else:
+        fullpath = descr
+
+    # error check the result
+    if not os.path.exists(fullpath):
+        raise RuntimeError("%s does not exist" % fullpath)
+    if not os.path.isdir(fullpath):
+        raise RuntimeError("%s is not a directory" % fullpath)
+    if not (fullpath.startswith("/SNS/") and ("IPTS" in fullpath)):
+        raise RuntimeError("%s does not appear to be a proposal directory" % fullpath)
+
+    return fullpath
 
 def getRuns(propdir):
     # find the data directory
@@ -224,38 +269,41 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Report information on ' \
                                                  + 'auto-reduction in a proposal')
-    parser.add_argument('-p', '--propdir', metavar="IPTSDIR",
-                        help="proposal directory to report on")
-    parser.add_argument('-r', '--runfile', metavar="NEXUSFILE",
-                        help="path to a nexus file, changes to append")
-    parser.add_argument('-o', '--outputdir',
+    # parser.add_argument('-p', '--propdir', metavar="IPTSDIR",
+                        # help="proposal directory to report on")
+    parser.add_argument('runfile', metavar="NEXUSFILE",
+                        help="path to a nexus file, changes to append or proposal directory")
+    parser.add_argument('outputdir',
                         help="directory to write csv to, " \
                              + "defaults to instrument shared")
     args = parser.parse_args()
 
-    if args.propdir is None:
-        pass
+    runfile = os.path.abspath(args.runfile)
+    propdir = getPropDir(runfile)
+    # one mode is to append a single run, the other is to parse an entire proposal
+    if runfile == propdir:
+        runfile = None
+
+    print("Finding event nexus files in '%s'" % propdir)
+    if runfile is not None:
+        runs = [EventFile(*(os.path.split(runfile)))]
     else:
-        pass
-
-    args.propdir = os.path.abspath(args.propdir)
-
-    if not os.path.exists(args.propdir):
-        parser.error("Proposal directory does not exist")
-    if not os.path.isdir(args.propdir):
-        parser.error("Specified a file rather than a directory")
-
-    print("Finding event nexus files in '%s'" % args.propdir)
-    runs = getRuns(args.propdir)
-    reducedir = os.path.join(args.propdir, 'shared', 'autoreduce')
+        runs = getRuns(propdir)
+    reducedir = os.path.join(propdir, 'shared', 'autoreduce')
     shareddirlist = os.listdir(reducedir)
 
-    outfile = getOutFilename(args.propdir)
+    outfile = getOutFilename(propdir)
+    outfile = os.path.join(args.outputdir, outfile)
     print("Writing results to '%s'" % outfile)
     total_runs = len(runs)
     total_reduced = 0
-    with open(outfile, 'w') as handle:
-        handle.write(','.join(ARstatus.header()) + "\n")
+    if runfile is None or (not os.path.exists(outfile)):
+        mode = 'w'
+    else:
+        mode = 'a'
+    with open(outfile, mode) as handle:
+        if mode == 'w':
+            handle.write(','.join(ARstatus.header()) + "\n")
         for eventfile in runs:
             ar = ARstatus(reducedir, eventfile)
             report = [str(item) for item in ar.report()]
