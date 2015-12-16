@@ -7,6 +7,8 @@ import datetime
 
 __version__ = "0.0.1"
 
+REDUCTION_LOG = 'reduction_log'
+
 shareddirlist = []
 reduceloglist = []
 
@@ -64,8 +66,8 @@ class GenericFile(object):
 
 
 class ReductionLogFile(GenericFile):
-    def __init__(self, direc, logname, eventfilename):
-        super(ReductionLogFile, self).__init__(os.path.join(direc, logname))
+    def __init__(self, logfullname, eventfilename):
+        super(ReductionLogFile, self).__init__(logfullname)
         self.mantidVersion = "UNKNOWN"
         self.longestDuration = 0.
         self.longestAlgorithm = ""
@@ -106,7 +108,7 @@ class ReductionLogFile(GenericFile):
             for line in handle:
                 if "Load" in line and eventfilename in line:
                     lookForDuration = True
-                elif lookForDuration and "Duration" in line:
+                elif lookForDuration and "Duration" in line and 'successful,' in line:
                     (_, duration) \
                         = self.logDurationToNameAndSeconds(line)
                     if duration > 0.:
@@ -120,6 +122,8 @@ class ReductionLogFile(GenericFile):
             for line in handle:
                 if "Duration" not in line:
                     continue
+                if 'successful,' not in line:
+                    continue
                 if "-1 seconds" in line:
                     continue
                 if "Load" not in line:
@@ -131,9 +135,9 @@ class ReductionLogFile(GenericFile):
 
     @staticmethod
     def logDurationToNameAndSeconds(line):
-        line = line.split()
-        algorithm = line[1]
-        duration = line[4:]
+        (algorithm, duration) = line.split("successful,")
+        algorithm = algorithm.split()[-1]
+        duration = duration.split()[1:]
 
         if len(duration) == 2:  # only seconds
             duration = float(duration[0])
@@ -141,6 +145,7 @@ class ReductionLogFile(GenericFile):
             duration = float(duration[0]) * 60. \
                        + float(duration[2])
         else:
+            print(duration)
             raise RuntimeError("Don't know how to parse duration")
         return (algorithm, duration)
 
@@ -149,7 +154,7 @@ class ReductionLogFile(GenericFile):
 
         with open(self.filename, 'r') as handle:
             for line in handle:
-                if "Duration" in line:
+                if "Duration" in line and 'successful,' in line:
                     line = line.strip()
                     if "-1 seconds" in line:
                         continue
@@ -165,7 +170,8 @@ class ReductionLogFile(GenericFile):
             for line in handle:
                 line = line.strip()
                 if "This is Mantid version" in line:
-                    self.mantidVersion = line.split()[5]
+                    self.mantidVersion = line.split("This is Mantid version")[-1]
+                    self.mantidVersion = self.mantidVersion.strip().split()[0]
                 if "running" in line and "starting" in line:
                     (self.host, _, self.started) = line.split()[2:]
 
@@ -178,9 +184,10 @@ class ARstatus:
                            for name in shareddirlist
                            if eventfile.isThisRun(name)]
 
-        logdir = os.path.join(direc, 'reduction_log')
-        self.logfile = ReductionLogFile(logdir, eventfile.shortname + ".log", eventfile.shortname)
-        self.errfile = ReductionLogFile(logdir, eventfile.shortname + ".err", eventfile.shortname)
+        logdir = os.path.join(direc, REDUCTION_LOG)
+        logprefix = os.path.join(logdir, eventfile.shortname)
+        self.logfile = ReductionLogFile(logprefix + ".log", eventfile.shortname)
+        self.errfile = ReductionLogFile(logprefix + ".err", eventfile.shortname)
 
     def hasLog(self):
         return (bool(self.logfile) or bool(self.errfile))
@@ -291,6 +298,7 @@ if __name__ == "__main__":
         runs = getRuns(propdir)
     reducedir = os.path.join(propdir, 'shared', 'autoreduce')
     shareddirlist = os.listdir(reducedir)
+    reduceloglist = os.listdir(os.path.join(reducedir, REDUCTION_LOG))
 
     outfile = getOutFilename(propdir)
     outfile = os.path.join(args.outputdir, outfile)
