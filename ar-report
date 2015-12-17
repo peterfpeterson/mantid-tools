@@ -8,6 +8,7 @@ import datetime
 __version__ = "0.0.1"
 
 REDUCTION_LOG = 'reduction_log'
+THE_FUTURE = "2300-01-01T00:00"
 
 shareddirlist = []
 reduceloglist = []
@@ -190,11 +191,84 @@ class ARstatus:
 
         logdir = os.path.join(direc, REDUCTION_LOG)
         logprefix = os.path.join(logdir, eventfile.shortname)
-        self.logfile = ReductionLogFile(logprefix + ".log", eventfile.shortname)
-        self.errfile = ReductionLogFile(logprefix + ".err", eventfile.shortname)
 
-    def hasLog(self):
-        return (bool(self.logfile) or bool(self.errfile))
+        self.logfiles = [os.path.join(logdir, filename)
+                         for filename in reduceloglist
+                         if filename.startswith(eventfile.shortname)]
+        self.logfiles = [ReductionLogFile(filename, eventfile.shortname)
+                         for filename in self.logfiles]
+
+        # find longest running algorithm
+        self.longestAlgorithm = ''
+        self.longestDuration = 0.
+        for logfile in self.logfiles:
+            if logfile.longestDuration > self.longestDuration:
+                self.longestAlgorithm = logfile.longestAlgorithm
+                self.longestDuration = logfile.longestDuration
+
+    @property
+    def host(self):
+        for logfile in self.logfiles:
+            if len(logfile.host) > 0:
+                return logfile.host
+        return ''
+
+    @property
+    def mantidVersion(self):
+        # collect possible mantid version
+        choices = [logfile.mantidVersion for logfile in self.logfiles
+                   if len(logfile.mantidVersion) > 0]
+        # remove all of the unknowns
+        choices = [choice for choice in choices
+                   if choice != 'UNKNOWN']
+        choices = set(choices)
+
+        if len(choices) == 0:
+            return 'UNKNOWN'
+        elif len(choices) == 1:
+            return choices.pop()
+        else:
+            raise RuntimeError("Too many mantid versions: " + str(choices))
+
+    @staticmethod
+    def findOldest(times):
+        times = [time for time in times if len(time) > 0]
+        if len(times) <= 0:
+            return ''
+
+        oldest=THE_FUTURE
+        for time in times:
+            if len(time) > 0 and time < oldest:
+                oldest = time
+        if oldest != THE_FUTURE:
+            return oldest
+        else:
+            return ""
+
+
+    @property
+    def logstarted(self):
+        times = [logfile.started for logfile in self.logfiles]
+        return self.findOldest(times)
+
+    @property
+    def logiso8601(self):
+        times = [logfile.iso8601() for logfile in self.logfiles]
+        return self.findOldest(times)
+
+    @property
+    def loadDurationTotal(self):
+        total = 0.
+        for logfile in self.logfiles:
+            total += float(logfile.loadDurationTotal)
+        return total
+
+    @property
+    def loadEventNexusDuration(self):
+        total = 0.
+        for logfile in self.logfiles:
+            total += float(logfile.loadEventNexusDuration)
+        return total
 
     @staticmethod
     def header():
@@ -207,12 +281,12 @@ class ARstatus:
                 self.eventfile.timeStart, self.eventfile.timeStop,
                 self.eventfile.iso8601(),
                 self.eventfile.filesizeMiB(),
-                self.logfile.host,
-                str(len(self.reduxfiles)), self.logfile.mantidVersion,
-                self.logfile.started,
-                self.logfile.iso8601(),
-                self.logfile.longestAlgorithm, self.logfile.longestDuration,
-                self.logfile.loadDurationTotal, self.logfile.loadEventNexusDuration)
+                self.host,
+                str(len(self.reduxfiles)), self.mantidVersion,
+                self.logstarted,
+                self.logiso8601,
+                self.longestAlgorithm, self.longestDuration,
+                self.loadDurationTotal, self.loadEventNexusDuration)
 
 
 class EventFile(GenericFile):
