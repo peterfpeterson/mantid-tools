@@ -3,7 +3,7 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 import os
 import sys
-__version__="0.0.1"
+__version__ = "0.0.1"
 
 try:
     import yaml
@@ -11,9 +11,10 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+
 def readTemplate(filename):
-    handle=open(filename, 'r')
-    template=handle.read()
+    handle = open(filename, 'r')
+    template = handle.read()
     handle.close()
     return template
 
@@ -29,7 +30,7 @@ if __name__ == "__main__":
                         help="File to write out. Defaults to abbreviated template name in the current directory")
     parser.add_argument('argvec', nargs='*', metavar="ARG",
                         help="Key/value pairs to fill into the template")
-    args=parser.parse_args()
+    args = parser.parse_args()
 
     if not HAVE_YAML:
         print("Install PyYAML for extra options")
@@ -39,30 +40,31 @@ if __name__ == "__main__":
 
     # output file
     if args.outfile is None:
-        args.outfile = os.path.split(args.infile)[-1].replace('.template','')
+        args.outfile = os.path.split(args.infile)[-1].replace('.template', '')
 
-    print("Reading '%s'" %args.infile)
+    print("Reading '%s'" % args.infile)
 
     # read in the template
-    scriptText=readTemplate(args.infile)
+    scriptText = readTemplate(args.infile)
 
-    argList=sys.argv[2:]
+    argList = sys.argv[2:]
     if HAVE_YAML and args.config:
         if not os.path.exists(args.config):
             parser.error("Config file does not exist")
+        print("Reading configuration from '%s'" % args.config)
         with open(args.config, 'r') as handle:
             argDict = yaml.load(handle)
     else:
-        argDict={}
-    for i in range(0,len(argList),2):
-        argDict[argList[i]]=argList[i+1]
+        argDict = {}
+    for i in range(0, len(argList), 2):
+        argDict[argList[i]] = argList[i+1]
 
-    print("Generating '%s'" %args.outfile)
+    print("Generating '%s'" % args.outfile)
     try:
-        scriptText=scriptText % argDict
+        scriptText = scriptText % argDict
     except KeyError as e:
         print("Failed to supply value for key %s" % str(e))
 
-    handle=open(args.outfile,'w')
+    handle = open(args.outfile, 'w')
     handle.write(scriptText)
     handle.close()
