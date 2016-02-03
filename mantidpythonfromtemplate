@@ -18,6 +18,18 @@ def readTemplate(filename):
     handle.close()
     return template
 
+
+def readConfig(filename, parser):
+    if HAVE_YAML and filename:
+        if not os.path.exists(filename):
+            parser.error("Config file does not exist")
+        print("Reading configuration from '%s'" % filename)
+        with open(filename, 'r') as handle:
+            return yaml.load(handle)
+    else:
+        return {}
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Fill in a template using pythons engine')
@@ -48,14 +60,7 @@ if __name__ == "__main__":
     scriptText = readTemplate(args.infile)
 
     argList = sys.argv[2:]
-    if HAVE_YAML and args.config:
-        if not os.path.exists(args.config):
-            parser.error("Config file does not exist")
-        print("Reading configuration from '%s'" % args.config)
-        with open(args.config, 'r') as handle:
-            argDict = yaml.load(handle)
-    else:
-        argDict = {}
+    argDict = readConfig(args.config, parser)
     for i in range(0, len(argList), 2):
         argDict[argList[i]] = argList[i+1]
 
