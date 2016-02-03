@@ -13,21 +13,23 @@ except ImportError:
 
 
 def readTemplate(filename):
-    handle = open(filename, 'r')
-    template = handle.read()
-    handle.close()
+    with open(filename, 'r') as handle:
+        template = handle.read()
+
     return template
 
 
 def readConfig(filename, parser):
+    config = {} # default is empty dict
+
     if HAVE_YAML and filename:
         if not os.path.exists(filename):
             parser.error("Config file does not exist")
         print("Reading configuration from '%s'" % filename)
         with open(filename, 'r') as handle:
-            return yaml.load(handle)
-    else:
-        return {}
+            config = yaml.load(handle)
+
+    return config
 
 
 if __name__ == "__main__":
