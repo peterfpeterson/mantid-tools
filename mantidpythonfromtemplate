@@ -20,7 +20,7 @@ def readTemplate(filename):
 
 
 def readConfig(filename, parser):
-    config = {} # default is empty dict
+    config = {}  # default is empty dict
 
     if HAVE_YAML and filename:
         if not os.path.exists(filename):
@@ -72,6 +72,5 @@ if __name__ == "__main__":
     except KeyError as e:
         print("Failed to supply value for key %s" % str(e))
 
-    handle = open(args.outfile, 'w')
-    handle.write(scriptText)
-    handle.close()
+    with open(args.outfile, 'w') as handle:
+        handle.write(scriptText)
