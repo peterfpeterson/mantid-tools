@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+from glob import glob
+import os
+import pandas as pd
+import sys
+import time
+__version__="0.0.1"
+
+def getLogs(direc='~/.mantid'):
+    direc = os.path.expanduser(direc)
+    files = glob(os.path.join(direc, 'mantid.log*'))
+    files.sort() # newest first by name
+    return files
+
+def listFiles(filenames):
+    for name in filenames:
+        timemod = time.localtime(os.path.getmtime(name))
+        timemod = time.strftime('%Y-%m-%dT%H:%M:%S', timemod)
+
+        filesize = os.path.getsize(name)
+        if filesize > 1024:      # bigger than on 1kB
+            filesize /= 1024
+            if filesize >= 1024:  # bigger than 1MB
+                filesize /= 1024
+                filesize = '%.0fMB' % filesize
+            else:
+                filesize = '%.0fkB' % filesize
+        else:
+            filesize = '%dB' % filesize
+        filesize = ' '*(5 - len(filesize)) + filesize
+        print(timemod, filesize, name)
+
+def toDateTime(data):
+    (first, second) = string.split()[:2]
+    return first+second
+
+def parseLog(filename):
+    data = pd.read_table(filename, header=None, names=['everything'])
+
+    # split up the single column into many
+    # WARNING!!!! this doesn't work at all for multi-line logs
+    data = data['everything'].str.extract('^(?P<datetime>.{23})\s+\[(?P<proc>\d+)\]\s+(?P<level>\S+)\s+(?P<logname>\S+)\s+-\s+(?P<message>.+)')
+
+    # convert to proper datetime objects
+    data = data.assign(datetime=lambda x:
+                     pd.to_datetime(x['datetime'],
+                                    format='%Y-%m-%d %H:%M:%S,%f',
+                                    errors='coerce'))
+
+    # convert some fields to better types
+    data['level'] = data['level'].astype('category')
+
+    data.reset_index()
+
+    return data
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Explore ~/.mantid/mantid.log assuming default format')
+    parser.add_argument('--list', action='store_true',
+                        help='List log files available')
+    parser.add_argument('--dir', default='~/.mantid',
+                        help="Directory with log files DEFAULT='%(default)s'")
+
+    args=parser.parse_args()
+    logfilenames = getLogs(args.dir)
+
+    if args.list:
+        listFiles(logfilenames)
+        sys.exit(0)
+
+    # only load the most recent
+    data = parseLog(logfilenames[0])
+
+    print("--------------------------")
+    print(data.describe())
+    print("----------")
+    print(data.info())
+    print("----------")
+    print(data.columns)
+    print("----------")
+    print(data.head())
+    print("----------")
+    print(data.iloc[0])
+    print("----------")
+    print(data.iloc[-1]['message'])
