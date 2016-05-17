@@ -3,7 +3,7 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 import os
 import sys
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 try:
     import yaml
@@ -31,6 +31,16 @@ def readConfig(filename, parser):
 
     return config
 
+def getKeywords(template):
+    import re
+    return re.findall(r'%\((.+)\)', template)
+
+def missingKeywords(template, argDict):
+    missing = []
+    for keyword in getKeywords(template):
+        if not keyword in argDict.keys():
+            missing.append(keyword)
+    return missing
 
 if __name__ == "__main__":
     import argparse
@@ -71,6 +81,9 @@ if __name__ == "__main__":
         scriptText = scriptText % argDict
     except KeyError as e:
         print("Failed to supply value for key %s" % str(e))
+        missing = missingKeywords(scriptText, argDict)
+        missing = ["'%s'" % item for item in missing]
+        print("Full list of missing keywords: %s" % ', '.join(missing))
 
     with open(args.outfile, 'w') as handle:
         handle.write(scriptText)
