@@ -8,7 +8,7 @@ import re
 # start of an algorithm
 algdeclare = re.compile(r'^Algorithm:\s+(.+)\s+v(\d+)$')
 algstart = re.compile(r'^Execution Date:\s+(.+)$')
-algparam = re.compile(r'^Name:\s+(.+),\s+Value:\s+(.*),\s+Default\?:\s+(.+),.+$')
+algparam = re.compile(r'^Name:\s+(.+),\s+Value:\s+(.*),\s+Default\?:\s+(.+),\s+Direction:\s+(Input|Output|InOut)\s*$')
 
 # Example: 2016-Sep-21 13:26:18
 timeformat = '%Y-%b-%d %H:%M:%S'
@@ -24,12 +24,16 @@ class Property:
             self.isDefault = True
         else:
             self.isDefault = False
+        self.direction = match.group(4)
+
 
     def __str__(self):
         if self.isDefault:
             return ''
-        else:
-            return '%s=\'%s\'' % (self.name, self.value)
+        if self.direction == 'Output':
+            return ''
+
+        return '%s=\'%s\'' % (self.name, self.value)
 
 class Algorithm:
     def __init__(self, lines):
@@ -38,21 +42,34 @@ class Algorithm:
         self.version = match.group(2)
         match = algstart.match(lines[1])
         self.startdate = datetime.strptime(match.group(1), timeformat)
+        self.delta = delta_default
+
+        # everything else is a property
         self.props = []
         for line in lines[2:]:
             self.props.append(Property(line))
-        self.delta = delta_default
+        self.props = [param for param in self.props if not param.isDefault]
+        self.props = [param for param in self.props # ignore output props
+                      if param.direction != 'Output']
 
-    def full(self):
-        params = [str(param) for param in self.props if not param.isDefault]
+
+    def descr(self, level):
+        if level == 'full':
+            params = self.__full()
+        elif level == 'medium':
+            params = self.__medium()
+        else:
+            raise ValueError('Do not understand level=\'%s\'' % level)
+
         return self.name+'(' + ', '.join(params) + ')'
 
-    def minimal(self):
-        params = [param for param in self.props if not param.isDefault]
+    def __full(self):
+        return [str(param) for param in self.props]
 
+    def __medium(self):
         allowed = ['InputWorkspace', 'Workspace', 'Filename',
                    'RHSWorkspace', 'LHSWorkspace']
-        params = [param for param in params if param.name in allowed]
+        params = [param for param in self.props if param.name in allowed]
         params = [str(param) for param in params]
 
         #if len(params) > 1:
@@ -61,7 +78,7 @@ class Algorithm:
         if len(params) != len(self.props):
             params.append('...')
 
-        return self.name+'(' + ', '.join(params) + ')'
+        return params
 
 def parseLog(filename):
     print('parsing', filename)
@@ -104,28 +121,37 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Get timing and information of a reduction log')
     parser.add_argument('file',
                         help='Log file to parse')
+    parser.add_argument('--minutes', default='0', type=int,
+                        help='Minimum number of minutes for algorithm to take DEFAULT=\'%(default)s\'')
+    parser.add_argument('--seconds', default='30', type=int,
+                        help='Minimum number of seconds for algorithm to take DEFAULT=\'%(default)s\'')
+    parser.add_argument('--allparams', action='store_true',
+                        help='Show all parameters that are not their default values')
 
     args=parser.parse_args()
-    args.file = os.path.abspath(args.file)
 
-    data = parseLog(args.file)
+    data = parseLog(os.path.abspath(args.file))
 
-    # calculate execution time
+    # calculate execution time - last one has unknown duration
     for i in range(len(data)-1):
         data[i].delta = data[i+1].startdate - data[i].startdate
 
+    # filter for algorithms to print
+    if args.minutes > 0 or args.seconds > 0:
+        deltamin = timedelta(minutes=args.minutes, seconds=args.seconds)
+        data = [item for item in data if item.delta != delta_default]
+        data = [item for item in data if item.delta > deltamin]
+        print('Algorithms that took longer than %02dh%02dm%02ds' %
+              (0, args.minutes, args.seconds))
+
     # print the details
-    long = []
+    tableformat = '%8s %9s  %s'
+    print(tableformat % ('start', 'duration', 'algorithm'))
     for item in data:
-        if item.delta != delta_default and item.delta > timedelta(minutes=1):
-            long.append(item)
-        print(item.startdate.strftime('%H:%M:%S'), '---', item.delta,
-              '---', item.minimal())
+        if args.allparams:
+            descr = item.descr('full')
+        else:
+            descr = item.descr('medium')
 
-
-    if len(long) > 0:
-        print('-------- Long running algorithms',
-              '----------------------------------------------')
-        for item in long:
-            print(item.startdate.strftime('%H:%M:%S'), '---', item.delta,
-                  '---', item.full())
+        print(tableformat % (item.startdate.strftime('%H:%M:%S'),
+                             item.delta, descr))
