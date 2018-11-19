@@ -58,6 +58,7 @@ if __name__ == "__main__":
 
     if not HAVE_YAML:
         print("Install PyYAML for extra options")
+        args.config = None
 
     if not os.path.exists(args.infile):
         parser.error("Input file does not exist")
